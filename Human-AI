@@ -1,0 +1,96 @@
+import asyncio
+import nest_asyncio
+import aiohttp
+from concurrent.futures import ThreadPoolExecutor
+
+# Enable nested async loops (required in Colab)
+nest_asyncio.apply()
+
+# Create an executor to allow non-blocking input() calls
+executor = ThreadPoolExecutor(max_workers=1)
+
+async def get_user_input(prompt: str) -> str:
+    """Asynchronously get input from the user."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(executor, input, prompt)
+
+async def get_weather_info(city: str) -> str:
+    """
+    Retrieve real-time weather information for the given city using WeatherAPI.
+    The city must be in the USA.
+    """
+    api_key = "ad6a8f77731348f687d173912251302"
+    base_url = "http://api.weatherapi.com/v1/current.json"
+    params = {"key": api_key, "q": city}
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(base_url, params=params) as response:
+            if response.status != 200:
+                return f"Error retrieving weather data for {city} (HTTP {response.status})."
+            
+            data = await response.json()
+            
+            # Check for errors returned by the API
+            if "error" in data:
+                return f"Error: {data['error'].get('message', 'Unknown error')} for {city}"
+            
+            location = data.get("location", {})
+            country = location.get("country", "")
+            # Restrict to U.S. cities only
+            if country not in ["United States of America", "USA", "United States"]:
+                return f"Error: {city} is not in the USA (found country: {country})."
+            
+            current = data.get("current", {})
+            condition = current.get("condition", {}).get("text", "N/A")
+            temp_f = current.get("temp_f", "N/A")
+            humidity = current.get("humidity", "N/A")
+            wind_mph = current.get("wind_mph", "N/A")
+            
+            return (f"Weather in {location.get('name', city)}, {country}:\n"
+                    f"  Condition: {condition}\n"
+                    f"  Temperature: {temp_f}°F\n"
+                    f"  Humidity: {humidity}%\n"
+                    f"  Wind: {wind_mph} mph")
+
+async def weather_interactive():
+    """
+    Interactive agent that asks whether the user wants weather news for their current city,
+    destination, or both, then retrieves and displays the weather information.
+    """
+    greeting = (
+        "Hello – Would you like the latest weather news in your area or the destination? "
+        "(Enter 'current city', 'destination', or 'both'): "
+    )
+    choice = (await get_user_input(greeting)).strip().lower()
+    
+    cities = []
+    if choice == "current city":
+        city = await get_user_input("Please enter your area city (USA only): ")
+        cities.append(city.strip())
+    elif choice == "destination":
+        city = await get_user_input("Please enter your destination city (USA only): ")
+        cities.append(city.strip())
+    elif choice == "both":
+        city1 = await get_user_input("Please enter your current city (USA only): ")
+        city2 = await get_user_input("Please enter your destination city (USA only): ")
+        cities.extend([city1.strip(), city2.strip()])
+    else:
+        print("Invalid choice. Please restart and type 'current', 'destination', or 'both'.")
+        return None
+
+    # Retrieve weather info for each provided city
+    results = []
+    for city in cities:
+        weather = await get_weather_info(city)
+        results.append(weather)
+    
+    return "\n\n".join(results)
+
+async def main():
+    weather_report = await weather_interactive()
+    if weather_report:
+        print("\n--- Weather Information ---")
+        print(weather_report)
+
+# Run the main function (in Colab, use 'await main()' at the top level)
+await main()
