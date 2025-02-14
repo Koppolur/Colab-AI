@@ -1,0 +1,72 @@
+import openai
+from google.colab import userdata
+from llama_index.llms.openai import OpenAI
+from tavily import AsyncTavilyClient
+from llama_index.core.agent.workflow import AgentWorkflow
+from llama_index.core.workflow import Context
+from llama_index.core.workflow import JsonPickleSerializer, JsonSerializer
+
+
+openai.api_key = "YOUR API KEY"
+tavily_api_key = 'YOUR API KEY'
+
+
+llm = OpenAI(model="gpt-4")
+
+# note the type annotations for the incoming query and the return string
+async def search_web(query: str) -> str:
+    """Useful for using the web to answer questions."""
+    client = AsyncTavilyClient(api_key=tavily_api_key)
+    return str(await client.search(query))
+
+workflow = AgentWorkflow.from_tools_or_functions(
+    [search_web],
+    llm=llm,
+    system_prompt="You are a helpful assistant that answers questions. If you don't know the answer, you can search the web for information.",
+)
+
+
+# configure a context to work with our workflow
+ctx = Context(workflow)
+
+response = await workflow.run(
+    user_msg="My name is Happy, nice to meet you!", ctx=ctx # give the configured context to the workflow
+)
+print(str(response))
+
+
+# run the workflow again with the same context
+response = await workflow.run(user_msg="What is my name?", ctx=ctx)
+print(str(response))
+
+
+# convert our Context to a dictionary object
+ctx_dict = ctx.to_dict(serializer=JsonSerializer())
+
+# create a new Context from the dictionary
+restored_ctx = Context.from_dict(
+    workflow, ctx_dict, serializer=JsonSerializer()
+)
+
+from llama_index.core.agent.workflow import (
+    AgentInput,
+    AgentOutput,
+    ToolCall,
+    ToolCallResult,
+    AgentStream,
+)
+
+handler = workflow.run(user_msg="Where is the most snowfall in USA today?")
+
+async for event in handler.stream_events():
+    if isinstance(event, AgentInput):
+       print("Agent input: ", event.input)  # the current input messages
+       print("Agent name:", event.current_agent_name)  # the current agent name
+    elif isinstance(event, AgentOutput):
+       print("Agent output: ", event.response)  # the current full response
+       print("Tool calls made: ", event.tool_calls)  # the selected tool calls, if any
+       print("Raw LLM response: ", event.raw)  # the raw llm api response
+    elif isinstance(event, ToolCallResult):
+       print("Tool called: ", event.tool_name)  # the tool name
+       print("Arguments to the tool: ", event.tool_kwargs)  # the tool kwargs
+       print("Tool output: ", event.tool_output)  # the tool output
