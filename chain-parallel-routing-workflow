@@ -1,0 +1,135 @@
+import openai
+import re
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Dict
+
+# Set your OpenAI API key (replace "YOUR_OPENAI_API_KEY" with your actual key)
+openai.api_key = "YOUR_OPENAI_API_KEY"
+
+def llm_call(prompt: str) -> str:
+    """
+    Calls the OpenAI ChatCompletion API with the given prompt.
+    Adjust parameters like temperature and max_tokens as needed.
+    """
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=150,
+    )
+    return response.choices[0].message.content
+
+def extract_xml(text: str, tag: str) -> str:
+    """
+    A simple function to extract text between <tag> and </tag>.
+    """
+    pattern = f"<{tag}>(.*?)</{tag}>"
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+def print_with_line_breaks(text: str):
+    """
+    Print the given text inserting a newline after each period.
+    """
+    # This regex replaces a period followed by one or more spaces with a period and a newline.
+    formatted_text = re.sub(r'\.\s+', '.\n', text)
+    print(formatted_text)
+
+def chain(input_text: str, prompts: List[str]) -> str:
+    """
+    Chain multiple LLM calls sequentially, passing results between steps.
+    """
+    result = input_text
+    for i, prompt in enumerate(prompts, 1):
+        print(f"\nStep {i}:")
+        full_prompt = f"{prompt}\nInput: {result}"
+        result = llm_call(full_prompt)
+        print("Result:", result)
+    return result
+
+def parallel(prompt: str, inputs: List[str], n_workers: int = 3) -> List[str]:
+    """
+    Process multiple inputs concurrently with the same prompt.
+    """
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        futures = [executor.submit(llm_call, f"{prompt}\nInput: {x}") for x in inputs]
+        return [future.result() for future in futures]
+
+def route(input_text: str, routes: Dict[str, str]) -> str:
+    """
+    Route input to a specialized prompt using content classification.
+    """
+    print(f"\nAvailable routes: {list(routes.keys())}")
+
+    selector_prompt = f"""
+Analyze the input and select the most appropriate support team from these options: {list(routes.keys())}
+First explain your reasoning, then provide your selection in this XML format:
+
+<reasoning>
+Brief explanation of why this ticket should be routed to a specific team.
+Consider key terms, user intent, and urgency level.
+</reasoning>
+
+<selection>
+The chosen team name
+</selection>
+
+Input: {input_text}""".strip()
+
+    route_response = llm_call(selector_prompt)
+    reasoning = extract_xml(route_response, 'reasoning')
+    route_key = extract_xml(route_response, 'selection').strip().lower()
+
+    print("Routing Analysis:")
+    print(reasoning)
+    print(f"\nSelected route: {route_key}")
+
+    # Use a default prompt if the selected key isn't in our routes
+    selected_prompt = routes.get(route_key, "Default Support Team: Please handle this inquiry appropriately.")
+    return llm_call(f"{selected_prompt}\nInput: {input_text}")
+    print("\nRouted Result:")
+    print_with_line_breaks(routed_result)
+    return routed_result
+
+# ---------------------
+# Example usage below:
+# ---------------------
+
+if __name__ == '__main__':
+
+    # Example 1: Chain Workflow
+    print("=== CHAIN EXAMPLE ===")
+    initial_input = "What is the capital of USA?"
+    prompts = [
+        "Answer the following question:",
+        "Now, explain your reasoning behind that answer:"
+    ]
+    chain_result = chain(initial_input, prompts)
+    print("\nFinal result from chain:", chain_result)
+    # print_with_line_breaks(chain_result)
+
+    # Example 2: Parallel Workflow
+    print("\n=== PARALLEL EXAMPLE ===")
+    translation_prompt = "Translate the following sentence to French:"
+    sentences = ["Hello, how are you?", "Good morning!", "See you later."]
+    parallel_results = parallel(translation_prompt, sentences)
+    for idx, res in enumerate(parallel_results, 1):
+        print(f"Result {idx}: {res}")
+        # print_with_line_breaks(res)
+
+    # Example 3: Routing Workflow
+    print("\n=== ROUTE EXAMPLE ===")
+    ticket_input = "My internet connection is down and I need help immediately."
+    support_routes = {
+        "network": "Network Support Team: Please assist the customer with connectivity issues.",
+        "billing": "Billing Team: Handle the inquiry regarding customer charges.",
+        "technical": "Technical Support: Diagnose and resolve the customer's technical issues.",
+        "userissue": "Can you restartr your computer in safe mode, then restart again normally"
+    }
+    route_result = route(ticket_input, support_routes)
+    print("\nFinal routed result:", route_result)
+    # print_with_line_breaks(route_result)
