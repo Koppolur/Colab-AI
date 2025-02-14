@@ -19,7 +19,7 @@ async def get_weather_info(city: str) -> str:
     Retrieve real-time weather information for the given city using WeatherAPI.
     The city must be in the USA.
     """
-    api_key = "ad6a8f77731348f687d173912251302"
+    api_key = "YOUR API KEY"
     base_url = "http://api.weatherapi.com/v1/current.json"
     params = {"key": api_key, "q": city}
     
